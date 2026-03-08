@@ -1,13 +1,15 @@
 import * as bcrypt from 'bcrypt';
 import {
+  BadRequestException,
+  ConflictException,
   Injectable,
   UnauthorizedException,
-  ConflictException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 
 /** User shape returned by API (no password). */
 export interface SanitizedUser {
@@ -60,6 +62,55 @@ export class AuthService {
       where: { id: userId },
     });
     return user ? this.sanitizeUser(user) : null;
+  }
+
+  async updateProfile(userId: number, dto: UpdateProfileDto): Promise<SanitizedUser> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    if (dto.newPassword != null && dto.newPassword !== '') {
+      if (!dto.currentPassword?.trim()) {
+        throw new BadRequestException('Current password is required to set a new password');
+      }
+      const passwordValid = await bcrypt.compare(dto.currentPassword, user.password);
+      if (!passwordValid) {
+        throw new UnauthorizedException('Current password is incorrect');
+      }
+    }
+
+    if (dto.email != null && dto.email !== '' && dto.email !== user.email) {
+      const existing = await this.prisma.user.findUnique({
+        where: { email: dto.email },
+      });
+      if (existing) {
+        throw new ConflictException('Email already in use');
+      }
+    }
+
+    const data: { name?: string; email?: string; password?: string } = {};
+    if (dto.name != null && dto.name !== '') {
+      data.name = dto.name;
+    }
+    if (dto.email != null && dto.email !== '') {
+      data.email = dto.email;
+    }
+    if (dto.newPassword != null && dto.newPassword !== '') {
+      data.password = await bcrypt.hash(dto.newPassword, 10);
+    }
+
+    if (Object.keys(data).length === 0) {
+      return this.sanitizeUser(user);
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data,
+    });
+    return this.sanitizeUser(updated);
   }
 
   private sanitizeUser(user: {
