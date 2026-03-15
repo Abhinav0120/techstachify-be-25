@@ -1,4 +1,4 @@
-import * as bcrypt from 'bcrypt';
+import { hash, compare } from 'bcrypt';
 import {
   BadRequestException,
   ConflictException,
@@ -27,14 +27,16 @@ export class AuthService {
     private readonly jwtService: JwtService,
   ) {}
 
-  async register(dto: RegisterDto): Promise<{ user: SanitizedUser; accessToken: string }> {
+  async register(
+    dto: RegisterDto,
+  ): Promise<{ user: SanitizedUser; accessToken: string }> {
     const existing = await this.prisma.user.findUnique({
       where: { email: dto.email },
     });
     if (existing) {
       throw new ConflictException('Email already registered');
     }
-    const hashed = await bcrypt.hash(dto.password, 10);
+    const hashed = await hash(dto.password, 10);
     const user = await this.prisma.user.create({
       data: {
         email: dto.email,
@@ -46,11 +48,13 @@ export class AuthService {
     return { user: this.sanitizeUser(user), accessToken };
   }
 
-  async login(dto: LoginDto): Promise<{ user: SanitizedUser; accessToken: string }> {
+  async login(
+    dto: LoginDto,
+  ): Promise<{ user: SanitizedUser; accessToken: string }> {
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email },
     });
-    if (!user || !(await bcrypt.compare(dto.password, user.password))) {
+    if (!user || !(await compare(dto.password, user.password))) {
       throw new UnauthorizedException('Invalid credentials');
     }
     const accessToken = this.jwtService.sign({ sub: user.id });
@@ -64,7 +68,10 @@ export class AuthService {
     return user ? this.sanitizeUser(user) : null;
   }
 
-  async updateProfile(userId: number, dto: UpdateProfileDto): Promise<SanitizedUser> {
+  async updateProfile(
+    userId: number,
+    dto: UpdateProfileDto,
+  ): Promise<SanitizedUser> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
     });
@@ -74,9 +81,11 @@ export class AuthService {
 
     if (dto.newPassword != null && dto.newPassword !== '') {
       if (!dto.currentPassword?.trim()) {
-        throw new BadRequestException('Current password is required to set a new password');
+        throw new BadRequestException(
+          'Current password is required to set a new password',
+        );
       }
-      const passwordValid = await bcrypt.compare(dto.currentPassword, user.password);
+      const passwordValid = await compare(dto.currentPassword, user.password);
       if (!passwordValid) {
         throw new UnauthorizedException('Current password is incorrect');
       }
@@ -99,7 +108,7 @@ export class AuthService {
       data.email = dto.email;
     }
     if (dto.newPassword != null && dto.newPassword !== '') {
-      data.password = await bcrypt.hash(dto.newPassword, 10);
+      data.password = await hash(dto.newPassword, 10);
     }
 
     if (Object.keys(data).length === 0) {
@@ -121,7 +130,7 @@ export class AuthService {
     createdAt: Date;
     password?: string;
   }): SanitizedUser {
-    const { password: _password, ...rest } = user;
-    return rest as SanitizedUser;
+    const { id, email, name, role, createdAt } = user;
+    return { id, email, name, role, createdAt };
   }
 }
